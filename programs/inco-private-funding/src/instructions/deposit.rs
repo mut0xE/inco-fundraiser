@@ -3,7 +3,10 @@ use inco_lightning::{
     cpi::{allow, e_add, new_euint128, Allow, Operation},
     Euint128, IncoLightning,
 };
-use inco_token::cpi::{self, accounts::IncoTransfer};
+use inco_token::{
+    cpi::{self, accounts::IncoTransfer},
+    IncoAccount,
+};
 
 use crate::state::Funding;
 
@@ -88,30 +91,63 @@ pub fn deposit_vault<'info>(
     )?;
     ctx.accounts.funding.enc_total_raised = new_balance;
     ctx.accounts.funding.contributor_count += 1;
-    // // 3. ALLOW: ONLY CREATOR CAN DECRYPT total_raised
-    // let funding_seeds: &[&[u8]] = &[
-    //     b"vault-1",
-    //     ctx.accounts.funding.creator.as_ref(),
-    //     &[ctx.bumps.funding],
-    // ];
-    // let signer_seeds: &[&[&[u8]]] = &[funding_seeds];
+    let source_account =
+        IncoAccount::try_deserialize(&mut &ctx.accounts.depositer_token_account.data.borrow()[..])?;
 
-    // let allow_ctx = CpiContext::new(
-    //     ctx.accounts.inco_lightning_program.to_account_info(),
-    //     Allow {
-    //         allowance_account: ctx.remaining_accounts[4].clone(),
-    //         signer: ctx.accounts.funding.to_account_info(), // PDA is OWNER
-    //         allowed_address: ctx.remaining_accounts[5].clone(), // CREATOR gets access
-    //         system_program: ctx.accounts.system_program.to_account_info(),
-    //     },
-    // )
-    // .with_signer(signer_seeds);
-    // allow(
-    //     allow_ctx,
-    //     new_balance.0,                // encrypted handle
-    //     true,                         // allow read
-    //     ctx.accounts.funding.creator, // creator pubkey
-    // )?;
+    let new_source_handle = source_account.amount;
+    if ctx.remaining_accounts.len() >= 2 {
+        let allow_ctx = CpiContext::new(
+            ctx.accounts.inco_lightning_program.to_account_info(),
+            Allow {
+                allowance_account: ctx.remaining_accounts[0].clone(),
+                signer: ctx.accounts.signer.to_account_info(),
+                allowed_address: ctx.remaining_accounts[1].clone(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+            },
+        );
+        allow(
+            allow_ctx,
+            new_source_handle.0, // encrypted handle
+            true,                // allow read
+            *ctx.accounts.signer.key,
+        )?;
+        let vault_account =
+            IncoAccount::try_deserialize(&mut &ctx.accounts.vault_account.data.borrow()[..])?;
+
+        let new_vault_handle = vault_account.amount;
+
+        let allow_ctx = CpiContext::new(
+            ctx.accounts.inco_lightning_program.to_account_info(),
+            Allow {
+                allowance_account: ctx.remaining_accounts[2].clone(),
+                signer: ctx.accounts.signer.to_account_info(),
+                allowed_address: ctx.remaining_accounts[3].clone(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+            },
+        );
+        allow(
+            allow_ctx,
+            new_vault_handle.0,             // encrypted handle
+            true,                           // allow read
+            *&ctx.accounts.funding.creator, // creator pubkey
+        )?;
+
+        //     let allow_ctx = CpiContext::new(
+        //         ctx.accounts.inco_lightning_program.to_account_info(),
+        //         Allow {
+        //             allowance_account: ctx.remaining_accounts[4].clone(),
+        //             signer: ctx.accounts.signer.to_account_info(),
+        //             allowed_address: ctx.remaining_accounts[5].clone(),
+        //             system_program: ctx.accounts.system_program.to_account_info(),
+        //         },
+        //     );
+        //     allow(
+        //         allow_ctx,
+        //         new_balance.0,               // encrypted handle
+        //         true,                        // allow read
+        //         *&ctx.accounts.signer.key(), // creator pubkey
+        //     )?;
+    }
 
     Ok(())
 }

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use inco_lightning::cpi::{self, allow, Allow, Operation};
+use inco_lightning::cpi::Operation;
 use inco_lightning::IncoLightning;
 use inco_lightning::{cpi::as_euint128, types::Euint128};
 
