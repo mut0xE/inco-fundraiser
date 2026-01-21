@@ -4,7 +4,7 @@ use inco_lightning::{
     Euint128, IncoLightning,
 };
 use inco_token::{
-    cpi::{self, accounts::IncoTransfer},
+    cpi::{accounts::IncoTransfer, transfer},
     IncoAccount,
 };
 
@@ -27,7 +27,8 @@ pub struct Deposit<'info> {
     pub vault_account: AccountInfo<'info>,
     ///CHECK:Mint confidential account
     pub mint: AccountInfo<'info>,
-    #[account(mut,seeds = [b"vault-1", funding.creator.as_ref()], bump)]
+    #[account(mut)]
+    //seeds = [b"vault-1", funding.creator.as_ref()], bump
     pub funding: Account<'info, Funding>,
     /// CHECK: Inco Lightning program
     #[account(address = IncoLightning::id())]
@@ -40,7 +41,6 @@ pub fn deposit_vault<'info>(
     ctx: Context<'_, '_, '_, 'info, Deposit<'info>>,
     amount: Vec<u8>,
 ) -> Result<()> {
-    let inco = ctx.accounts.inco_lightning_program.to_account_info();
     let signer = ctx.accounts.signer.to_account_info();
 
     // let transfer_ctx = CpiContext::new(
@@ -56,6 +56,7 @@ pub fn deposit_vault<'info>(
     // );
     // let mint_data = IncoMint::try_deserialize(&mut &ctx.accounts.mint.data.borrow()[..])?;
     // cpi::transfer_checked(transfer_ctx, amount.clone(), 0, mint_data.decimals)?;
+
     // 1. Transfer confidential tokens to the vault
     let transfer_ctx = CpiContext::new(
         ctx.accounts.inco_token_program.to_account_info(),
@@ -67,7 +68,7 @@ pub fn deposit_vault<'info>(
             system_program: ctx.accounts.system_program.to_account_info(),
         },
     );
-    cpi::transfer(transfer_ctx, amount.clone(), 0)?;
+    transfer(transfer_ctx, amount.clone(), 0)?;
     // 2. Update encrypted total raised
     let cpi_ctx = CpiContext::new(
         ctx.accounts.inco_lightning_program.to_account_info(),
@@ -75,26 +76,31 @@ pub fn deposit_vault<'info>(
             signer: signer.to_account_info(),
         },
     );
-    // Create encrypted handle from ciphertext
+
     let encrypted_amount: Euint128 = new_euint128(cpi_ctx, amount, 0)?;
-    let cpi_ctx = CpiContext::new(
-        inco.clone(),
+
+    let add_ctx = CpiContext::new(
+        ctx.accounts.inco_lightning_program.to_account_info(),
         Operation {
-            signer: signer.clone(),
+            signer: ctx.accounts.signer.to_account_info(),
         },
     );
-    let new_balance = e_add(
-        cpi_ctx,
-        ctx.accounts.funding.enc_total_raised,
+
+    let updated_handle = e_add(
+        add_ctx,
+        Euint128(ctx.accounts.funding.enc_total_raised),
         encrypted_amount,
         0,
     )?;
-    ctx.accounts.funding.enc_total_raised = new_balance;
+
+    ctx.accounts.funding.enc_total_raised = updated_handle.0;
     ctx.accounts.funding.contributor_count += 1;
+    msg!("   Updated funding handle: {}", updated_handle.0);
+
     let source_account =
         IncoAccount::try_deserialize(&mut &ctx.accounts.depositer_token_account.data.borrow()[..])?;
-
     let new_source_handle = source_account.amount;
+
     if ctx.remaining_accounts.len() >= 2 {
         let allow_ctx = CpiContext::new(
             ctx.accounts.inco_lightning_program.to_account_info(),
@@ -109,45 +115,47 @@ pub fn deposit_vault<'info>(
             allow_ctx,
             new_source_handle.0, // encrypted handle
             true,                // allow read
-            *ctx.accounts.signer.key,
+            ctx.accounts.signer.key(),
         )?;
-        let vault_account =
-            IncoAccount::try_deserialize(&mut &ctx.accounts.vault_account.data.borrow()[..])?;
+        if ctx.remaining_accounts.len() >= 4 {
+            let vault_account =
+                IncoAccount::try_deserialize(&mut &ctx.accounts.vault_account.data.borrow()[..])?;
 
-        let new_vault_handle = vault_account.amount;
+            let new_vault_handle = vault_account.amount;
 
-        let allow_ctx = CpiContext::new(
-            ctx.accounts.inco_lightning_program.to_account_info(),
-            Allow {
-                allowance_account: ctx.remaining_accounts[2].clone(),
-                signer: ctx.accounts.signer.to_account_info(),
-                allowed_address: ctx.remaining_accounts[3].clone(),
-                system_program: ctx.accounts.system_program.to_account_info(),
-            },
-        );
-        allow(
-            allow_ctx,
-            new_vault_handle.0,             // encrypted handle
-            true,                           // allow read
-            *&ctx.accounts.funding.creator, // creator pubkey
-        )?;
-
-        //     let allow_ctx = CpiContext::new(
-        //         ctx.accounts.inco_lightning_program.to_account_info(),
-        //         Allow {
-        //             allowance_account: ctx.remaining_accounts[4].clone(),
-        //             signer: ctx.accounts.signer.to_account_info(),
-        //             allowed_address: ctx.remaining_accounts[5].clone(),
-        //             system_program: ctx.accounts.system_program.to_account_info(),
-        //         },
-        //     );
-        //     allow(
-        //         allow_ctx,
-        //         new_balance.0,               // encrypted handle
-        //         true,                        // allow read
-        //         *&ctx.accounts.signer.key(), // creator pubkey
-        //     )?;
+            let allow_ctx = CpiContext::new(
+                ctx.accounts.inco_lightning_program.to_account_info(),
+                Allow {
+                    allowance_account: ctx.remaining_accounts[2].clone(),
+                    signer: ctx.accounts.signer.to_account_info(),
+                    allowed_address: ctx.remaining_accounts[3].clone(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                },
+            );
+            allow(
+                allow_ctx,
+                new_vault_handle.0,           // encrypted handle
+                true,                         // allow read
+                ctx.accounts.funding.creator, // creator pubkey
+            )?;
+        }
+        if ctx.remaining_accounts.len() >= 6 {
+            let allow_ctx = CpiContext::new(
+                ctx.accounts.inco_lightning_program.to_account_info(),
+                Allow {
+                    allowance_account: ctx.remaining_accounts[4].clone(),
+                    signer: ctx.accounts.signer.to_account_info(),
+                    allowed_address: ctx.remaining_accounts[5].clone(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                },
+            );
+            allow(
+                allow_ctx,
+                updated_handle.0, // encrypted handle
+                true,             // allow read
+                ctx.accounts.funding.creator,
+            )?;
+        }
     }
-
     Ok(())
 }

@@ -1,9 +1,6 @@
-use anchor_lang::prelude::*;
-use inco_lightning::cpi::Operation;
-use inco_lightning::IncoLightning;
-use inco_lightning::{cpi::as_euint128, types::Euint128};
-
 use crate::state::Funding;
+use anchor_lang::prelude::*;
+use inco_lightning::IncoLightning;
 
 #[derive(Accounts)]
 pub struct InitializeVault<'info> {
@@ -34,9 +31,7 @@ pub struct InitializeVault<'info> {
     pub inco_token_program: AccountInfo<'info>,
 }
 
-pub fn initialize_vault<'info>(
-    ctx: Context<'_, '_, '_, 'info, InitializeVault<'info>>,
-) -> Result<()> {
+pub fn initialize_vault<'info>(ctx: Context<InitializeVault>) -> Result<()> {
     let funding = &mut ctx.accounts.funding;
     let mint = &ctx.accounts.mint;
     let inco = ctx.accounts.inco_token_program.to_account_info();
@@ -59,18 +54,11 @@ pub fn initialize_vault<'info>(
     let cpi_ctx = CpiContext::new(inco.clone(), cpi_accounts).with_signer(signer_seeds);
 
     inco_token::cpi::initialize_account(cpi_ctx)?;
-    let cpi_ctx = CpiContext::new(
-        ctx.accounts.inco_lightning_program.to_account_info(),
-        Operation {
-            signer: ctx.accounts.signer.to_account_info(),
-        },
-    );
 
     // Create encrypted zero
-    let zero_handle: Euint128 = as_euint128(cpi_ctx, 0)?;
     funding.set_inner(Funding {
-        creator: *ctx.accounts.signer.key,
-        enc_total_raised: zero_handle,
+        creator: ctx.accounts.signer.key(),
+        enc_total_raised: 0,
         contributor_count: 0,
         created_at: Clock::get()?.unix_timestamp,
         is_finalized: false,

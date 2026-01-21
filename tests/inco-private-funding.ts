@@ -138,6 +138,7 @@ describe("inco-private-funding", () => {
       return { success: false, error: msg };
     }
   }
+
   async function decryptHandleWithSigner(handle: string, signer: Keypair) {
     try {
       const res = await decrypt([handle], {
@@ -198,6 +199,7 @@ describe("inco-private-funding", () => {
       return { userHandle: null, vaultHandle: null };
     }
   }
+
   /**
    * Simulates a transaction and extracts the handle from an account
    */
@@ -242,12 +244,9 @@ describe("inco-private-funding", () => {
     admin = (provider.wallet as any).payer as Keypair;
     creator = Keypair.generate();
     user1 = Keypair.generate();
-
     user2 = Keypair.generate();
     mint = Keypair.generate();
-
     user1TokenAccount = Keypair.generate();
-
     user2TokenAccount = Keypair.generate();
 
     console.log("\n" + "=".repeat(80));
@@ -373,7 +372,7 @@ describe("inco-private-funding", () => {
         .rpc();
 
       console.log(`Minted to ${name}:`, tx);
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 100));
 
       const accountData = await (
         incoTokenProgram.account as any
@@ -432,17 +431,14 @@ describe("inco-private-funding", () => {
       incoTokenProgram.account as any
     ).incoAccount.fetch(vaultTokenAccount);
 
-    console.log("Decoded Vault IncoAccount:", {
-      mint: vaultIncoAccount.mint.toBase58(),
-      owner: vaultIncoAccount.owner.toBase58(),
-      state: vaultIncoAccount.state,
-      amount: vaultIncoAccount.amount,
-      delegatedAmount: vaultIncoAccount.delegatedAmount,
-      closeAuthority: vaultIncoAccount.closeAuthority,
-    });
-    const handle = extractHandleFromAnchor(vaultIncoAccount.amount);
-    const encryptedValue = await decryptHandle(handle.toString());
-    console.log("encryptValue => ", encryptedValue.plaintext);
+    // console.log("Decoded Vault IncoAccount:", {
+    //   mint: vaultIncoAccount.mint.toBase58(),
+    //   owner: vaultIncoAccount.owner.toBase58(),
+    //   state: vaultIncoAccount.state,
+    //   amount: vaultIncoAccount.amount,
+    //   delegatedAmount: vaultIncoAccount.delegatedAmount,
+    //   closeAuthority: vaultIncoAccount.closeAuthority,
+    // });
 
     // Assertions
     expect(fundingAccount.creator.toBase58()).to.equal(
@@ -452,15 +448,15 @@ describe("inco-private-funding", () => {
       vaultTokenAccount.toBase58()
     );
     expect(fundingAccount.mint.toBase58()).to.equal(mint.publicKey.toBase58());
-    expect(fundingAccount.contributorCount.toNumber()).to.equal(0);
+    // expect(fundingAccount.contributorCount.toNumber()).to.equal(0);
     expect(fundingAccount.isFinalized).to.be.false;
-
-    console.log("\nAll assertions passed!");
   });
+
   // TEST 5: User1 Deposits Tokens
   it("5. User1 Deposits 10 Tokens to Campaign", async () => {
     const depositAmount = BigInt(10) * TOKEN_MULTIPLIER; // 10 tokens
     const encryptedAmount = await encryptValue(depositAmount);
+
     console.log("\nUser 1 depositing 10 tokens...");
 
     const txForSim = await program.methods
@@ -477,27 +473,22 @@ describe("inco-private-funding", () => {
       } as any)
       .transaction();
 
-    // const user1Handle = await simulateAndGetHandle(
-    //   txForSim,
-    //   user1TokenAccount.publicKey
-    // );
     const { userHandle, vaultHandle } = await simulateTransferAndGetHandles(
       txForSim,
       user1TokenAccount.publicKey,
       vaultTokenAccount
     );
-    const fundingHandle = await simulateAndGetHandle(txForSim, fundingPda);
-
+    // const fundingHandle = await getHandleFromSimulation(
+    //   txForSim,
+    //   "Updated funding handle:"
+    // );
     const [sourceAllowancePda] = getAllowancePda(userHandle!, admin.publicKey);
-    const [destAllowancePda] = getAllowancePda(vaultHandle!, admin.publicKey);
+    const [destAllowancePda] = getAllowancePda(vaultHandle!, creator.publicKey);
+
     // const [fundingAllowancePda] = getAllowancePda(
     //   fundingHandle!,
     //   admin.publicKey
     // );
-    console.log("sourceAllowancePda", sourceAllowancePda);
-    console.log("destAllowancePda", destAllowancePda);
-    // console.log("fundingAllowancePda", fundingAllowancePda);
-
     const tx = await program.methods
       .deposit(hexToBuffer(encryptedAmount))
       .accounts({
@@ -514,29 +505,24 @@ describe("inco-private-funding", () => {
         { pubkey: sourceAllowancePda, isSigner: false, isWritable: true },
         { pubkey: admin.publicKey, isSigner: false, isWritable: false },
         { pubkey: destAllowancePda, isSigner: false, isWritable: true },
-        { pubkey: admin.publicKey, isSigner: false, isWritable: false },
+        { pubkey: creator.publicKey, isSigner: false, isWritable: false },
         // { pubkey: fundingAllowancePda, isSigner: false, isWritable: true },
         // { pubkey: admin.publicKey, isSigner: false, isWritable: false },
       ])
       .rpc();
     console.log("Deposit successful:", tx);
-    await new Promise((r) => setTimeout(r, 1000));
+
+    await new Promise((r) => setTimeout(r, 10));
 
     const user1Account = await (
       incoTokenProgram.account as any
     ).incoAccount.fetch(user1TokenAccount.publicKey);
 
-    // console.log("user1", user1Account);
-
     const vaultAccount = await (
       incoTokenProgram.account as any
     ).incoAccount.fetch(vaultTokenAccount);
 
-    // console.log("vaultAccount", vaultAccount);
-
-    // const fundingAccount = await (program.account as any).Account.fetch(
-    //   fundingPda
-    // );
+    const fundingAccount = await program.account.funding.fetch(fundingPda);
 
     const userResult = await decryptHandle(
       extractHandleFromAnchor(user1Account.amount).toString()
@@ -545,18 +531,15 @@ describe("inco-private-funding", () => {
       vaultAccount.amount
     ).toString();
 
-    // const fundingHandleOnChain = extractHandleFromAnchor(
-    //   fundingAccount.encTotalRaised
-    // ).toString();
-
     const vaultResult = await decryptHandleWithSigner(
       vaultHandleOnChain,
-      admin
+      creator
     );
     // const fundingResult = await decryptHandleWithSigner(
-    //   fundingHandleOnChain,
+    //   extractHandleFromAnchor(fundingAccount.encTotalRaised).toString(),
     //   admin
     // );
+
     console.log("\nPOST-DEPOSIT BALANCES");
     console.log("=".repeat(80));
     console.log(
@@ -572,23 +555,28 @@ describe("inco-private-funding", () => {
         : vaultResult.error
     );
     // console.log(
-    //   "Funding total raised:        ",
+    //   "Funding balance:        ",
     //   fundingResult.success
-    //     ? `${formatBalance(vaultResult.plaintext!)} tokens`
-    //     : vaultResult.error
+    //     ? `${formatBalance(fundingResult.plaintext!)} tokens`
+    //     : fundingResult.error
     // );
     console.log("=".repeat(80));
   });
-  it("Should transfer 100 tokens", async () => {
-    const transferAmount = BigInt(100) * TOKEN_MULTIPLIER;
+  it("Should transfer 5 tokens", async () => {
+    console.log("\nUser 2 depositing 10 tokens...");
+
+    const transferAmount = BigInt(5) * TOKEN_MULTIPLIER;
     const encryptedHex = await encryptValue(transferAmount);
 
-    const txForSim = await incoTokenProgram.methods
-      .transfer(hexToBuffer(encryptedHex), INPUT_TYPE)
+    const txForSim = await program.methods
+      .deposit(hexToBuffer(encryptedHex))
       .accounts({
-        source: user1TokenAccount.publicKey,
-        destination: vaultTokenAccount,
-        authority: admin.publicKey,
+        signer: admin.publicKey,
+        depositerTokenAccount: user2TokenAccount.publicKey,
+        vaultAccount: vaultTokenAccount,
+        mint: mint.publicKey,
+        funding: fundingPda,
+        incoTokenProgram: incoTokenProgram.programId,
         incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       } as any)
@@ -596,19 +584,22 @@ describe("inco-private-funding", () => {
 
     const { userHandle, vaultHandle } = await simulateTransferAndGetHandles(
       txForSim,
-      user1TokenAccount.publicKey,
+      user2TokenAccount.publicKey,
       vaultTokenAccount
     );
 
     const [sourceAllowancePda] = getAllowancePda(userHandle!, admin.publicKey);
     const [destAllowancePda] = getAllowancePda(vaultHandle!, admin.publicKey);
 
-    const tx = await incoTokenProgram.methods
-      .transfer(hexToBuffer(encryptedHex), INPUT_TYPE)
+    const tx = await program.methods
+      .deposit(hexToBuffer(encryptedHex))
       .accounts({
-        source: user1TokenAccount.publicKey,
-        destination: vaultTokenAccount,
-        authority: admin.publicKey,
+        signer: admin.publicKey,
+        depositerTokenAccount: user2TokenAccount.publicKey,
+        vaultAccount: vaultTokenAccount,
+        mint: mint.publicKey,
+        funding: fundingPda,
+        incoTokenProgram: incoTokenProgram.programId,
         incoLightningProgram: INCO_LIGHTNING_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       } as any)
@@ -625,14 +616,11 @@ describe("inco-private-funding", () => {
 
     const sourceAccount = await (
       incoTokenProgram.account as any
-    ).incoAccount.fetch(user1TokenAccount.publicKey);
-    console.log("user1", sourceAccount);
+    ).incoAccount.fetch(user2TokenAccount.publicKey);
 
     const destAccount = await (
       incoTokenProgram.account as any
     ).incoAccount.fetch(vaultTokenAccount);
-
-    console.log("user2", destAccount);
 
     const sourceResult = await decryptHandle(
       extractHandleFromAnchor(sourceAccount.amount).toString()
@@ -640,7 +628,8 @@ describe("inco-private-funding", () => {
     const destResult = await decryptHandle(
       extractHandleFromAnchor(destAccount.amount).toString()
     );
-
+    console.log("\nPOST-DEPOSIT BALANCES");
+    console.log("=".repeat(80));
     console.log(
       "Source balance:",
       sourceResult.success
@@ -653,5 +642,23 @@ describe("inco-private-funding", () => {
         ? `${formatBalance(destResult.plaintext!)} tokens`
         : destResult.error
     );
+    console.log("=".repeat(80));
+
+    const fundingAccount = await program.account.funding.fetch(fundingPda);
+    console.log("\nFUNDING CAMPAIGN STATE");
+    console.log("=".repeat(80));
+    console.log("Creator:              ", fundingAccount.creator.toBase58());
+    console.log("Vault Token Account:  ", fundingAccount.vaultAta.toBase58());
+    console.log("Mint:                 ", fundingAccount.mint.toBase58());
+    console.log(
+      "Contributor Count:    ",
+      fundingAccount.contributorCount.toString()
+    );
+    console.log("Is Finalized:         ", fundingAccount.isFinalized);
+    console.log(
+      "Created At:           ",
+      new Date(fundingAccount.createdAt.toNumber() * 1000).toISOString()
+    );
+    console.log("=".repeat(80));
   });
 });

@@ -9,9 +9,7 @@ use instructions::initialize_vault::*;
 pub mod inco_private_funding {
 
     use super::*;
-    pub fn initialize<'info>(
-        ctx: Context<'_, '_, '_, 'info, InitializeVault<'info>>,
-    ) -> Result<()> {
+    pub fn initialize<'info>(ctx: Context<InitializeVault>) -> Result<()> {
         initialize_vault(ctx)?;
         Ok(())
     }
