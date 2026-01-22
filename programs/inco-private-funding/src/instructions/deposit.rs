@@ -153,7 +153,7 @@ pub fn deposit_vault<'info>(
                 allow_ctx,
                 updated_handle.0, // encrypted handle
                 true,             // allow read
-                ctx.accounts.funding.creator,
+                ctx.accounts.funding.creator.key(),
             )?;
         }
     }
